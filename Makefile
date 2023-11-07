@@ -1,4 +1,4 @@
-## dcape-app-template Makefile
+## dcape-app-zabbix Makefile
 ## This file extends Makefile.app from dcape
 #:
 
@@ -21,6 +21,7 @@ USE_DB              = yes
 # If you need user name and password, uncomment this var
 #ADD_USER            = yes
 
+# Other docker images
 SERVER_IMAGE       ?= zabbix/zabbix-server-pgsql
 AGENT_IMAGE        ?= zabbix/zabbix-agent
 
