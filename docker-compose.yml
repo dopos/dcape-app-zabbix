@@ -1,0 +1,9 @@
+# This file will be joined with docker-compose.app.yml from dcape
+# See https://github.com/dopos/dcape
+
+services:
+  # This service will extend code from dcape
+  app:
+    environment:
+      # Some var to keep YML struct
+      - DEBUG=yes
