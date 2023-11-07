@@ -1,19 +1,19 @@
-# dcape-app-template
+# dcape-app-zabbix
 
 [![GitHub Release][1]][2] [![GitHub code size in bytes][3]]() [![GitHub license][4]][5]
 
-[1]: https://img.shields.io/github/release/dopos/dcape-app-template.svg
-[2]: https://github.com/dopos/dcape-app-template/releases
-[3]: https://img.shields.io/github/languages/code-size/dopos/dcape-app-template.svg
-[4]: https://img.shields.io/github/license/dopos/dcape-app-template.svg
+[1]: https://img.shields.io/github/release/dopos/dcape-app-zabbix.svg
+[2]: https://github.com/dopos/dcape-app-zabbix/releases
+[3]: https://img.shields.io/github/languages/code-size/dopos/dcape-app-zabbix.svg
+[4]: https://img.shields.io/github/license/dopos/dcape-app-zabbix.svg
 [5]: LICENSE
 
-[upstream_name](https://upstream_url) application package for [dcape](https://github.com/dopos/dcape).
+[Zabbix](https://www.zabbix.com/) application package for [dcape](https://github.com/dopos/dcape).
 
 ## Upstream
 
-* Project: [upstream_name](https://upstream_url)
-* Docker: [template](https://hub.docker.com/r/template)
+* Project: [Zabbix](https://www.zabbix.com/)
+* Docker: [zabbix](https://hub.docker.com/u/zabbix)
 
 ## Requirements
 
@@ -38,8 +38,8 @@
 
 Run commands on deploy host with [dcape](https://github.com/dopos/dcape) installed:
 ```bash
-git clone --single-branch --depth 1 https://github.com/dopos/dcape-app-template.git
-cd dcape-app-template
+git clone --single-branch --depth 1 https://github.com/dopos/dcape-app-zabbix.git
+cd dcape-app-zabbix
 make config-if
 ... <edit .env.sample>
 make up

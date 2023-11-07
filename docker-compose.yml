@@ -5,5 +5,49 @@ services:
   # This service will extend code from dcape
   app:
     environment:
-      # Some var to keep YML struct
-      - DEBUG=yes
+      - ZBX_SERVER_NAME=${APP_SITE}
+      - ZBX_SERVER_URL=${HTTP_PROTO}://${APP_SITE}
+      - ZBX_SERVER_HOST=server
+      - POSTGRES_USER=${PGUSER}
+      - POSTGRES_PASSWORD=${PGPASSWORD}
+      - POSTGRES_DB=${PGDATABASE}
+      - DB_SERVER_HOST=db
+      - PHP_TZ
+    depends_on:
+      - server
+      - agent
+
+  server:
+    image: ${SERVER_IMAGE}:${IMAGE_VER}
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    restart: always
+    sysctls:
+      - net.ipv4.ip_local_port_range=1024 65000
+      - net.ipv4.conf.all.accept_redirects=0
+      - net.ipv4.conf.all.secure_redirects=0
+      - net.ipv4.conf.all.send_redirects=0
+    environment:
+      - ZBX_SERVER_NAME=${APP_SITE}
+      - ZBX_SERVER_URL=${HTTP_PROTO}://${APP_SITE}
+      - ZBX_NODEADDRESS=server
+      - POSTGRES_USER=${PGUSER}
+      - POSTGRES_PASSWORD=${PGPASSWORD}
+      - POSTGRES_DB=${PGDATABASE}
+      - DB_SERVER_HOST=db
+
+  agent:
+    image: zabbix/zabbix-agent:${IMAGE_VER}
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    privileged: true
+    pid: "host"
+    stop_grace_period: 5s
+    environment:
+      - ZBX_SERVER_HOST=server
+      - ZBX_HOSTNAME=agent
+#      - ZBX_DEBUGLEVEL=4

@@ -7,19 +7,22 @@ CFG                ?= .env
 CFG_BAK            ?= $(CFG).bak
 
 #- App name
-APP_NAME           ?= service-template
+APP_NAME           ?= zabbix
 
-#- Docker image name
-IMAGE              ?= ghcr.io/lekovr/service-template
+#- Docker frontend image name
+IMAGE              ?= zabbix/zabbix-web-nginx-pgsql
 
-#- Docker image tag
-IMAGE_VER          ?= 0.1.0
+#- Docker image tag (all images)
+IMAGE_VER          ?= alpine-6.2.7
 
 # If you need database, uncomment this var
-#USE_DB              = yes
+USE_DB              = yes
 
 # If you need user name and password, uncomment this var
 #ADD_USER            = yes
+
+SERVER_IMAGE       ?= zabbix/zabbix-server-pgsql
+AGENT_IMAGE        ?= zabbix/zabbix-agent
 
 # ------------------------------------------------------------------------------
 
@@ -31,12 +34,16 @@ export
 export
 
 # This content will be added to .env
-# define CONFIG_CUSTOM
-# # ------------------------------------------------------------------------------
-# # Sample config for .env
-# #SOME_VAR=value
-#
-# endef
+define CONFIG_CUSTOM
+# ------------------------------------------------------------------------------
+# Zabbix config addon
+
+SERVER_IMAGE=$(SERVER_IMAGE)
+AGENT_IMAGE=$(AGENT_IMAGE)
+
+PHP_TZ=$(TZ)
+
+endef
 
 # ------------------------------------------------------------------------------
 # Find and include DCAPE_ROOT/Makefile
@@ -50,7 +57,3 @@ else
 endif
 
 # ------------------------------------------------------------------------------
-
-## Template support code, used once
-use-template:
-
