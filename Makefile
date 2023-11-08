@@ -44,6 +44,8 @@ AGENT_IMAGE=$(AGENT_IMAGE)
 
 PHP_TZ=$(TZ)
 
+DB_CONTAINER=$(DB_CONTAINER)
+
 endef
 
 # ------------------------------------------------------------------------------
@@ -58,3 +60,31 @@ else
 endif
 
 # ------------------------------------------------------------------------------
+## App operations
+#:
+
+sql:
+	@cat $${SQL:?Must be set} | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
+
+## Бэкап партиций с данными на вчера
+dump-parts:
+	@week=$$(expr $$(date --date=yesterday +%s) / 604800) ; from=$$(expr $$week \* 604800) ; echo "BackUp parts for $$from..." ; \
+	docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -t '*_p'$${from} -Ft | gzip > backup_parts_$${from}.tgz
+
+## Бэкап БД без партиций
+dump-noparts:
+	@week=$$(expr $$(date --date=yesterday +%s) / 604800) ; from=$$(expr $$week \* 604800) ; echo "BackUp data for $$from..." ; \
+	docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n public -T '*_p[0-9]+' -Ft | gzip > backup_noparts_$${from}.tgz
+
+## Восстановление архива из параметра SRC
+rest:
+	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft -O -d $$PGDATABASE -U $$PGUSER
+
+## Загрузить вспомогательный код
+parts-install:
+	@cat parts.sql | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
+
+## Создание новых партиций
+parts-new:
+	@docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER -c 'call create_parts_for_all()'
+
