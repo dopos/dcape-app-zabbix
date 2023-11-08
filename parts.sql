@@ -45,7 +45,7 @@ BEGIN
     -- имя новой таблицы, префикс совпадает с текущей, если не задан явно
     table_new := format('%s_p%s', COALESCE(child_prefix, table_name), chunk_from);
     RAISE NOTICE '%: FROM % TO %', table_new, chunk_from, chunk_from + time_interval;
-    if to_regclass(table_name) is null then
+    if to_regclass(table_new) is null then
       -- создаем, если такого имени нет
       execute format('create table %I partition of %I for values from (%L) to (%L)'
               , table_new, table_name, chunk_from, chunk_from + time_interval);
@@ -71,7 +71,8 @@ DECLARE
   table_name TEXT;
 BEGIN
   FOR table_name IN SELECT
-    format('%I.%I', n.nspname, c.relname)
+    c.relname
+    -- format('%I.%I', n.nspname, c.relname)
     from pg_catalog.pg_class c
     join pg_catalog.pg_namespace n on c.relnamespace = n.oid
     join pg_partitioned_table p on p.partrelid = c.oid
