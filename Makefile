@@ -80,6 +80,11 @@ dump-noparts:
 rest:
 	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft -O -d $$PGDATABASE -U $$PGUSER
 
+## Восстановление партиций из параметра SRC
+rest-parts:
+	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft -1 --section=pre-data --section=data -O -d $$PGDATABASE -U $$PGUSER
+
+
 ## Загрузить вспомогательный код
 parts-install:
 	@cat parts.sql | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
