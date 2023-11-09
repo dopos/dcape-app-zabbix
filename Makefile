@@ -78,7 +78,7 @@ dump-noparts:
 
 ## Восстановление архива из параметра SRC
 rest:
-	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft -O -d $$PGDATABASE -U $$PGUSER
+	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft  --if-exists --clean -O -d $$PGDATABASE -U $$PGUSER
 
 ## Восстановление партиций из параметра SRC
 rest-parts:
