@@ -93,3 +93,7 @@ parts-install:
 parts-new:
 	@docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER -c 'call create_parts_for_all()'
 
+## Создание дефолтных партиций
+parts-default:
+	@docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER -c 'call create_default_parts_for_all()'
+

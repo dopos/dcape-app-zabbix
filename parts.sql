@@ -83,6 +83,34 @@ BEGIN
 END
 $_$;
 
+CREATE OR REPLACE PROCEDURE create_default_parts_for_all()
+LANGUAGE plpgsql AS $_$
+/*
+  Создание дефолтных партиций для всех таблиц с партициями
+*/
+DECLARE
+  table_name TEXT;
+  table_new TEXT;
+BEGIN
+  FOR table_name IN SELECT
+    c.relname
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on c.relnamespace = n.oid
+    join pg_partitioned_table p on p.partrelid = c.oid
+    order by n.nspname, c.relname
+  LOOP
+    table_new := format('%s_default', table_name);
+    RAISE NOTICE '%: DEFAULT', table_new;
+    if to_regclass(table_new) is null then
+      -- создаем, если такого имени нет
+      execute format('create table %I partition of %I default', table_new, table_name);
+    else
+      raise notice '  already exists';
+    end if;
+  END LOOP;
+END
+$_$;
+
 CREATE OR REPLACE PROCEDURE enable_parts(
   table_name    TEXT
 , table_column  TEXT
