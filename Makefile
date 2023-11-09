@@ -82,7 +82,7 @@ rest:
 
 ## Восстановление партиций из параметра SRC
 rest-parts:
-	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft -1 --section=pre-data --section=data -O -d $$PGDATABASE -U $$PGUSER
+	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft -1 --section=pre-data --section=data --if-exists --clean -O -d $$PGDATABASE -U $$PGUSER
 
 
 ## Загрузить вспомогательный код
