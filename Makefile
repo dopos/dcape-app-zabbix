@@ -13,7 +13,7 @@ APP_NAME           ?= zabbix
 IMAGE              ?= zabbix/zabbix-web-nginx-pgsql
 
 #- Docker image tag (all images)
-IMAGE_VER          ?= alpine-6.2.7
+IMAGE_VER          ?= alpine-6.4.8
 
 # If you need database, uncomment this var
 USE_DB              = yes
@@ -23,7 +23,7 @@ USE_DB              = yes
 
 # Other docker images
 SERVER_IMAGE       ?= zabbix/zabbix-server-pgsql
-AGENT_IMAGE        ?= zabbix/zabbix-agent
+AGENT_IMAGE        ?= zabbix/zabbix-agent2
 
 # ------------------------------------------------------------------------------
 
@@ -63,6 +63,7 @@ endif
 ## App operations
 #:
 
+## Выполнить файл в текущей БД (make sql SQL=file.sql)
 sql:
 	@cat $${SQL:?Must be set} | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
 
@@ -97,3 +98,6 @@ parts-new:
 parts-default:
 	@docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER -c 'call create_default_parts_for_all()'
 
+## top via pgcenter
+top:
+	docker run -it --rm --network ${DCAPE_NET} -e PGPASSWORD=$$PGPASSWORD lesovsky/pgcenter:latest pgcenter top -h db -U $$PGUSER -d $$PGDATABASE
