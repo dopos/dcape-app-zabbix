@@ -26,6 +26,8 @@ USE_DB              = yes
 SERVER_IMAGE       ?= zabbix/zabbix-server-pgsql
 AGENT_IMAGE        ?= zabbix/zabbix-agent2
 
+DATESTAMP          ?= $(shell date +%F_%H%M)
+
 # ------------------------------------------------------------------------------
 
 # if exists - load old values
@@ -71,12 +73,12 @@ sql:
 ## Бэкап партиций с данными на вчера
 dump-parts:
 	@week=$$(expr $$(date --date=yesterday +%s) / 604800) ; from=$$(expr $$week \* 604800) ; echo "BackUp parts for $$from..." ; \
-	docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -t '*_p'$${from} -Ft | gzip > backup_parts_$${from}.tgz
+	docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -t '*_p'$${from} -Ft | gzip > backup_parts_$${from}_$(DATESTAMP).tgz
 
 ## Бэкап БД без партиций
 dump-noparts:
 	@week=$$(expr $$(date --date=yesterday +%s) / 604800) ; from=$$(expr $$week \* 604800) ; echo "BackUp data for $$from..." ; \
-	docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n public -T '*_p[0-9]+' -Ft | gzip > backup_noparts_$${from}.tgz
+	docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n public -T '*_p[0-9]+' -Ft | gzip > backup_noparts_$${from}_$(DATESTAMP).tgz
 
 ## Восстановление архива из параметра SRC
 rest:
