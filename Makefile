@@ -13,7 +13,8 @@ APP_NAME           ?= zabbix
 IMAGE              ?= zabbix/zabbix-web-nginx-pgsql
 
 #- Docker image tag (all images)
-IMAGE_VER          ?= alpine-6.4.8
+#IMAGE_VER          ?= alpine-6.4.8
+IMAGE_VER          ?= alpine-6.4-latest
 
 # If you need database, uncomment this var
 USE_DB              = yes
