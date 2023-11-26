@@ -13,8 +13,45 @@
 
 */
 
-CREATE OR REPLACE PROCEDURE create_parts(
+
+-- Cleanup old
+
+DROP PROCEDURE IF EXISTS create_parts(text,text,integer,integer,integer,text);
+DROP PROCEDURE IF EXISTS create_default_parts_for_all();
+DROP PROCEDURE IF EXISTS create_default_parts_for_all(text);
+DROP PROCEDURE IF EXISTS create_parts(text,text,int,int,int,text);
+DROP PROCEDURE IF EXISTS create_parts(text,int,int,int,text);
+DROP PROCEDURE IF EXISTS create_parts_for_all(int,int,int,text);
+DROP PROCEDURE IF EXISTS create_parts_for_schema(text,int,int,int,text);
+DROP PROCEDURE IF EXISTS enable_parts(text,text);
+
+
+DROP SCHEMA IF EXISTS parts CASCADE;
+CREATE SCHEMA IF NOT EXISTS parts;
+
+CREATE OR REPLACE FUNCTION parts.date2uts(dt TEXT DEFAULT CURRENT_DATE) RETURNS INTEGER IMMUTABLE LANGUAGE sql AS $_$
+  --  Конвертация даты в unix timestamp. Дата по умолчанию - текущая
+  SELECT EXTRACT(EPOCH FROM dt::TIMESTAMP)
+$_$;
+
+CREATE OR REPLACE FUNCTION parts.uts2date(uts INTEGER) RETURNS timestamp(0) IMMUTABLE LANGUAGE sql AS $_$
+  --  Конвертация даты в unix timestamp
+  SELECT to_timestamp(uts)
+$_$;
+
+CREATE OR REPLACE VIEW parts.attached AS SELECT
+  n.nspname
+, c.relname
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on c.relnamespace = n.oid
+  join pg_partitioned_table p on p.partrelid = c.oid
+  order by n.nspname, c.relname
+;
+COMMENT ON VIEW parts.attached IS 'Таблицы, у которых есть партиции';
+
+CREATE OR REPLACE PROCEDURE parts.attach(
   table_name    TEXT
+, schema_name   TEXT DEFAULT 'public'
 , time_interval INT  DEFAULT 604800     -- 7 days
 , chunk_count   INT  DEFAULT 2
 , time_min      INT  DEFAULT NULL
@@ -22,7 +59,7 @@ CREATE OR REPLACE PROCEDURE create_parts(
 )
 LANGUAGE plpgsql AS $_$
 /*
-  Создание партиций для таблицы table_name
+  Создание партиций для таблицы schema_name.table_name
   * заданный момент времени time_min [now()] округляется до time_interval
   * результат - это суффикс имени партиции и ее начальный интервал
   * конечный интервал определяется добавлением time_interval
@@ -42,13 +79,20 @@ BEGIN
   -- округляем до заданного шага
   chunk_from := time_interval * (time_min / time_interval)::INT;
   FOR i IN 1..chunk_count LOOP
+    -- 
     -- имя новой таблицы, префикс совпадает с текущей, если не задан явно
     table_new := format('%s_p%s', COALESCE(child_prefix, table_name), chunk_from);
-    RAISE NOTICE '%: FROM % TO %', table_new, chunk_from, chunk_from + time_interval;
-    if to_regclass(table_new) is null then
+    RAISE NOTICE '%.%: FROM % TO %', schema_name, table_new
+            , parts.uts2date(chunk_from)
+            , parts.uts2date(chunk_from + time_interval)
+    ;
+    if to_regclass(format('%I.%I', schema_name, table_new)) is null then
       -- создаем, если такого имени нет
-      execute format('create table %I partition of %I for values from (%L) to (%L)'
-              , table_new, table_name, chunk_from, chunk_from + time_interval);
+      execute format('create table %I.%I partition of %I.%I for values from (%s) to (%s)'
+              , schema_name, table_new, schema_name, table_name
+              , chunk_from
+              , chunk_from + time_interval
+      );
     else
       raise notice '  already exists';
     end if;
@@ -57,8 +101,109 @@ BEGIN
 END
 $_$;
 
-CREATE OR REPLACE PROCEDURE create_parts_for_all(
+CREATE OR REPLACE PROCEDURE parts.attach_from_default(
+  table_name    TEXT
+, schema_name   TEXT DEFAULT 'public'
+, time_interval INT  DEFAULT 604800     -- 7 days
+, chunk_count   INT  DEFAULT 1
+, time_min      INT  DEFAULT NULL
+, child_prefix  TEXT DEFAULT NULL
+)
+LANGUAGE plpgsql AS $_$
+/*
+  Создание партиций для таблицы schema_name.table_name
+  для случая, когда данные этой таблицы уже попали в DEFAULT партицию
+  * заданный момент времени time_min [now()] округляется до time_interval
+  * результат - это суффикс имени партиции и ее начальный интервал
+  * конечный интервал определяется добавлением time_interval
+  * если партиции с таким именем нет, она создается
+  * начальный интервал увеличивается на time_interval
+  * повторить chunk_count раз
+*/
+DECLARE
+  chunk_from INT;
+  chunk_max INT;
+  i INT;
+  table_new TEXT;
+BEGIN
+  IF time_min IS NULL THEN
+    -- если начальное время не задано, берем текущее
+    time_min := extract(epoch from now());
+  END IF;
+  -- округляем до заданного шага
+  chunk_from := time_interval * (time_min / time_interval)::INT;
+  FOR i IN 1..chunk_count LOOP
+    chunk_max := chunk_from + time_interval;
+
+    IF extract(epoch from now()) BETWEEN chunk_from AND chunk_max THEN
+      -- если текущая дата попадает в эту партицию
+      RAISE NOTICE 'WARNING: если сейчас что-то пишет в дефолтную партицию, это может потеряться';
+    END IF;
+    -- имя новой таблицы, префикс совпадает с текущей, если не задан явно
+    table_new := format('%s_p%s', COALESCE(child_prefix, table_name), chunk_from);
+    RAISE NOTICE '%.%: FROM % TO %', schema_name, table_new
+            , parts.uts2date(chunk_from)
+            , parts.uts2date(chunk_max)
+    ;
+    IF to_regclass(format('%I.%I', schema_name, table_new)) IS NOT NULL THEN
+      -- такое имя уже есть
+      chunk_from := chunk_max;
+      RAISE NOTICE 'exists';
+      CONTINUE;
+    END IF;
+
+    -- создать отдельную таблицу
+    RAISE NOTICE 'create';
+    execute format('create table %I.%I (like %I.%I including defaults /*including indexes*/)'
+            , schema_name, table_new, schema_name, table_name
+    );
+    -- добавить к ней чек
+    RAISE NOTICE 'create check';
+    execute format('alter table %I.%I add check (clock between %L AND %L)'
+            , schema_name, table_new, chunk_from, chunk_max
+    );
+    -- перенести строки из дефолта
+    RAISE NOTICE 'move data';
+    execute format('WITH buffer AS (DELETE FROM %I.%I WHERE clock BETWEEN %L AND %L RETURNING *) INSERT INTO %I.%I SELECT * FROM buffer'
+    , schema_name, table_name||'_default', chunk_from, chunk_max, schema_name, table_new
+    );
+    -- пристегнуть к родителю
+    RAISE NOTICE 'attach';
+    execute format('ALTER TABLE %I.%I ATTACH PARTITION %I.%I FOR VALUES FROM (%L) TO (%L)'
+    , schema_name, table_name, schema_name, table_new, chunk_from, chunk_max
+    );
+    chunk_from := chunk_max;
+  END LOOP;
+END
+$_$;
+
+
+CREATE OR REPLACE PROCEDURE parts.attach_all(
   time_interval INT  DEFAULT 604800     -- 7 days
+, chunk_count   INT  DEFAULT 2
+, time_min      INT  DEFAULT NULL
+, child_prefix  TEXT DEFAULT NULL
+)
+LANGUAGE plpgsql AS $_$
+/*
+  Создание партиций для всех таблиц с партициями
+*/
+DECLARE
+  schema_name TEXT;
+  table_name TEXT;
+BEGIN
+  FOR table_name, schema_name IN SELECT
+    relname, nspname
+    FROM parts.attached
+  LOOP
+    call parts.attach(table_name, schema_name, time_interval, chunk_count, time_min);
+  END LOOP;
+END
+$_$;
+
+CREATE OR REPLACE PROCEDURE parts.attach_schema(
+  schema_name   TEXT DEFAULT 'public'
+, time_interval INT  DEFAULT 604800     -- 7 days
 , chunk_count   INT  DEFAULT 2
 , time_min      INT  DEFAULT NULL
 , child_prefix  TEXT DEFAULT NULL
@@ -71,19 +216,19 @@ DECLARE
   table_name TEXT;
 BEGIN
   FOR table_name IN SELECT
-    c.relname
-    -- format('%I.%I', n.nspname, c.relname)
-    from pg_catalog.pg_class c
-    join pg_catalog.pg_namespace n on c.relnamespace = n.oid
-    join pg_partitioned_table p on p.partrelid = c.oid
-    order by n.nspname, c.relname
+    relname
+    FROM parts.attached
+    WHERE nspname = schema_name
   LOOP
-    call create_parts(table_name, time_interval, chunk_count, time_min);
+    call parts.attach(table_name, schema_name, time_interval, chunk_count, time_min);
   END LOOP;
 END
 $_$;
 
-CREATE OR REPLACE PROCEDURE create_default_parts_for_all()
+
+CREATE OR REPLACE PROCEDURE parts.defaults_all(
+  schema_name   TEXT DEFAULT 'public'
+)
 LANGUAGE plpgsql AS $_$
 /*
   Создание дефолтных партиций для всех таблиц с партициями
@@ -93,17 +238,15 @@ DECLARE
   table_new TEXT;
 BEGIN
   FOR table_name IN SELECT
-    c.relname
-    from pg_catalog.pg_class c
-    join pg_catalog.pg_namespace n on c.relnamespace = n.oid
-    join pg_partitioned_table p on p.partrelid = c.oid
-    order by n.nspname, c.relname
+    relname
+    FROM parts.attached
+    WHERE nspname = schema_name
   LOOP
     table_new := format('%s_default', table_name);
-    RAISE NOTICE '%: DEFAULT', table_new;
-    if to_regclass(table_new) is null then
+    RAISE NOTICE '%.%: DEFAULT', schema_name, table_new;
+    if to_regclass(format('%I.%I', schema_name, table_new)) is null then
       -- создаем, если такого имени нет
-      execute format('create table %I partition of %I default', table_new, table_name);
+      execute format('create table %I.%I partition of %I.%I default', schema_name, table_new, schema_name, table_name);
     else
       raise notice '  already exists';
     end if;
@@ -111,13 +254,14 @@ BEGIN
 END
 $_$;
 
-CREATE OR REPLACE PROCEDURE enable_parts(
+CREATE OR REPLACE PROCEDURE parts.enable(
   table_name    TEXT
 , table_column  TEXT
+, schema_name   TEXT DEFAULT 'public'
 )
 LANGUAGE plpgsql AS $_$
 /*
-  Конвертация таблицы table_name в партиционированную по полю table_column.
+  Конвертация таблицы schema_name.table_name в партиционированную по полю table_column.
   ВНИМАНИЕ! Таблица будет переименована (добавится суффикс _pre) и в эту копию
   попадут все изменения, сделанные за время работы процедуры.
   После конвертации необходимо отдельно выполнить запрос
@@ -126,17 +270,18 @@ LANGUAGE plpgsql AS $_$
 DECLARE
   temp_table TEXT := table_name || '__temp';
 BEGIN
-  RAISE NOTICE '%: Enable partitions for %', table_name, table_column;
-  execute format('create table %I (like %I including defaults including indexes) PARTITION BY RANGE (%I)'
-    , temp_table, table_name, table_column);
-  call create_parts(temp_table, child_prefix := table_name);
+  RAISE NOTICE '%.%: Enable partitions for %', schema_name, table_name, table_column;
+  execute format('create table %I.%I (like %I.%I including defaults including indexes) PARTITION BY RANGE (%I)'
+    , schema_name, temp_table, schema_name, table_name, table_column);
+  call parts.attach(temp_table, schema_name, child_prefix := table_name);
   RAISE NOTICE 'insert data..';
-  execute format('insert into %I select * from %I', temp_table, table_name);
+  execute format('insert into %I.%I select * from %I.%I', schema_name, temp_table, schema_name, table_name);
 
   RAISE NOTICE 'switch tables..';
-  execute format('alter table %I rename to %I', table_name, table_name || '_pre');
-  execute format('alter table %I rename to %I', temp_table, table_name);
+  execute format('alter table %I.%I rename to %I.%I', schema_name, table_name, schema_name, table_name || '_pre');
+  execute format('alter table %I.%I rename to %I.%I', schema_name, temp_table, schema_name, table_name);
 
-  RAISE NOTICE '% is ready.', table_name;
+  RAISE NOTICE '%.% is ready.', schema_name, table_name;
 END;
 $_$;
+

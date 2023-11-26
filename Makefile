@@ -27,7 +27,6 @@ SERVER_IMAGE       ?= zabbix/zabbix-server-pgsql
 AGENT_IMAGE        ?= zabbix/zabbix-agent2
 
 DATESTAMP          ?= $(shell date +%F_%H%M)
-
 # ------------------------------------------------------------------------------
 
 # if exists - load old values
@@ -62,45 +61,19 @@ else
   include /opt/dcape/Makefile.app
 endif
 
+include Makefile.parts
+
 # ------------------------------------------------------------------------------
-## App operations
+## App support operations
 #:
 
-## Выполнить файл в текущей БД (make sql SQL=file.sql)
-sql:
-	@cat $${SQL:?Must be set} | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
+## Бэкап схемы БД
+dump-schema:
+	@echo "BackUp schema..." ; \
+	  docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} --schema-only -Ft \
+	  | gzip > $${DEST_PATH}backupdb-zabbix-$${PGSCHEMA}-$(DATESTAMP)-schema.tgz
 
-## Бэкап партиций с данными на вчера
-dump-parts:
-	@week=$$(expr $$(date --date=yesterday +%s) / 604800) ; from=$$(expr $$week \* 604800) ; echo "BackUp parts for $$from..." ; \
-	docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -t '*_p'$${from} -Ft | gzip > backup_parts_$${from}_$(DATESTAMP).tgz
+## Отключить алертинг (при запуске копии на продовых данных)
+alerts-off:
+	@cat alerts-off.sql | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA}
 
-## Бэкап БД без партиций
-dump-noparts:
-	@week=$$(expr $$(date --date=yesterday +%s) / 604800) ; from=$$(expr $$week \* 604800) ; echo "BackUp data for $$from..." ; \
-	docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n public -T '*_p[0-9]+' -Ft | gzip > backup_noparts_$${from}_$(DATESTAMP).tgz
-
-## Восстановление архива из параметра SRC
-rest:
-	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft  --if-exists --clean -O -d $$PGDATABASE -U $$PGUSER
-
-## Восстановление партиций из параметра SRC
-rest-parts:
-	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft -1 --section=pre-data --section=data --if-exists --clean -O -d $$PGDATABASE -U $$PGUSER
-
-
-## Загрузить вспомогательный код
-parts-install:
-	@cat parts.sql | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
-
-## Создание новых партиций
-parts-new:
-	@docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER -c 'call create_parts_for_all()'
-
-## Создание дефолтных партиций
-parts-default:
-	@docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER -c 'call create_default_parts_for_all()'
-
-## top via pgcenter
-top:
-	docker run -it --rm --network ${DCAPE_NET} -e PGPASSWORD=$$PGPASSWORD lesovsky/pgcenter:latest pgcenter top -h db -U $$PGUSER -d $$PGDATABASE
