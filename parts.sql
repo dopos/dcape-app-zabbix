@@ -2,6 +2,8 @@
 
   Код для работы с партициями postgresql
 
+  В имя партиции зашивается Unix timestamp. Так было в варианте для timescaledb, оставлено для совместимости
+
   Аналог из citus:
   SELECT create_time_partitions(table_name:= 'history',
     partition_interval:= '1 week',
@@ -12,19 +14,6 @@
   SELECT create_hypertable('history', 'clock', chunk_time_interval => 86400, migrate_data => true);
 
 */
-
-
--- Cleanup old
-
-DROP PROCEDURE IF EXISTS create_parts(text,text,integer,integer,integer,text);
-DROP PROCEDURE IF EXISTS create_default_parts_for_all();
-DROP PROCEDURE IF EXISTS create_default_parts_for_all(text);
-DROP PROCEDURE IF EXISTS create_parts(text,text,int,int,int,text);
-DROP PROCEDURE IF EXISTS create_parts(text,int,int,int,text);
-DROP PROCEDURE IF EXISTS create_parts_for_all(int,int,int,text);
-DROP PROCEDURE IF EXISTS create_parts_for_schema(text,int,int,int,text);
-DROP PROCEDURE IF EXISTS enable_parts(text,text);
-
 
 DROP SCHEMA IF EXISTS parts CASCADE;
 CREATE SCHEMA IF NOT EXISTS parts;
@@ -49,7 +38,7 @@ CREATE OR REPLACE VIEW parts.attached AS SELECT
 ;
 COMMENT ON VIEW parts.attached IS 'Таблицы, у которых есть партиции';
 
-CREATE OR REPLACE PROCEDURE parts.attach(
+CREATE OR REPLACE PROCEDURE parts.attach_table(
   table_name    TEXT
 , schema_name   TEXT DEFAULT 'public'
 , time_interval INT  DEFAULT 604800     -- 7 days
@@ -79,7 +68,6 @@ BEGIN
   -- округляем до заданного шага
   chunk_from := time_interval * (time_min / time_interval)::INT;
   FOR i IN 1..chunk_count LOOP
-    -- 
     -- имя новой таблицы, префикс совпадает с текущей, если не задан явно
     table_new := format('%s_p%s', COALESCE(child_prefix, table_name), chunk_from);
     RAISE NOTICE '%.%: FROM % TO %', schema_name, table_new
@@ -178,31 +166,8 @@ END
 $_$;
 
 
-CREATE OR REPLACE PROCEDURE parts.attach_all(
-  time_interval INT  DEFAULT 604800     -- 7 days
-, chunk_count   INT  DEFAULT 2
-, time_min      INT  DEFAULT NULL
-, child_prefix  TEXT DEFAULT NULL
-)
-LANGUAGE plpgsql AS $_$
-/*
-  Создание партиций для всех таблиц с партициями
-*/
-DECLARE
-  schema_name TEXT;
-  table_name TEXT;
-BEGIN
-  FOR table_name, schema_name IN SELECT
-    relname, nspname
-    FROM parts.attached
-  LOOP
-    call parts.attach(table_name, schema_name, time_interval, chunk_count, time_min);
-  END LOOP;
-END
-$_$;
-
-CREATE OR REPLACE PROCEDURE parts.attach_schema(
-  schema_name   TEXT DEFAULT 'public'
+CREATE OR REPLACE PROCEDURE parts.attach(
+  a_schema_name TEXT DEFAULT NULL
 , time_interval INT  DEFAULT 604800     -- 7 days
 , chunk_count   INT  DEFAULT 2
 , time_min      INT  DEFAULT NULL
@@ -210,37 +175,40 @@ CREATE OR REPLACE PROCEDURE parts.attach_schema(
 )
 LANGUAGE plpgsql AS $_$
 /*
-  Создание партиций для всех таблиц с партициями
+  Создание партиций для всех таблиц с партициями или заданной схемы schema_name (если она NOT NULL)
 */
 DECLARE
+  schema_name TEXT;
   table_name TEXT;
 BEGIN
-  FOR table_name IN SELECT
-    relname
+  IF a_schema_name = '' THEN a_schema_name := NULL; END IF; -- из make удобнее передавать пустую строку
+  FOR table_name, schema_name IN SELECT
+    relname, nspname
     FROM parts.attached
-    WHERE nspname = schema_name
+    WHERE nspname = COALESCE(a_schema_name, nspname)
   LOOP
-    call parts.attach(table_name, schema_name, time_interval, chunk_count, time_min);
+    call parts.attach_table(table_name, schema_name, time_interval, chunk_count, time_min);
   END LOOP;
 END
 $_$;
 
-
-CREATE OR REPLACE PROCEDURE parts.defaults_all(
-  schema_name   TEXT DEFAULT 'public'
+CREATE OR REPLACE PROCEDURE parts.defaults(
+  a_schema_name   TEXT DEFAULT NULL
 )
 LANGUAGE plpgsql AS $_$
 /*
-  Создание дефолтных партиций для всех таблиц с партициями
+  Создание дефолтных партиций для всех таблиц с партициями (если схема не задана) или для таблиц заданной схемы
 */
 DECLARE
+  schema_name TEXT;
   table_name TEXT;
   table_new TEXT;
 BEGIN
-  FOR table_name IN SELECT
-    relname
+  IF a_schema_name = '' THEN a_schema_name := NULL; END IF; -- из make удобнее передавать пустую строку
+  FOR table_name, schema_name IN SELECT
+    relname, nspname
     FROM parts.attached
-    WHERE nspname = schema_name
+    WHERE nspname = COALESCE(a_schema_name, nspname)
   LOOP
     table_new := format('%s_default', table_name);
     RAISE NOTICE '%.%: DEFAULT', schema_name, table_new;
@@ -253,6 +221,40 @@ BEGIN
   END LOOP;
 END
 $_$;
+
+CREATE OR REPLACE PROCEDURE parts.defaults_size(
+  a_schema_name   TEXT DEFAULT NULL
+)
+LANGUAGE plpgsql AS $_$
+/*
+  Проверка дефолтных партиций для всех таблиц с партициями (если схема не задана) или для таблиц заданной схемы
+*/
+DECLARE
+  schema_name TEXT;
+  table_name TEXT;
+  table_new TEXT;
+  clock_min INT;
+  clock_max INT;
+BEGIN
+  IF a_schema_name = '' THEN a_schema_name := NULL; END IF; -- из make удобнее передавать пустую строку
+  FOR table_name, schema_name IN SELECT
+    relname, nspname
+    FROM parts.attached
+    WHERE nspname = COALESCE(a_schema_name, nspname)
+  LOOP
+    table_new := format('%s_default', table_name);
+    execute format('select min(clock), max(clock) from %I.%I', schema_name, table_new) into clock_min,clock_max;
+    IF COALESCE(clock_min,clock_max,-1) >0 THEN
+      RAISE NOTICE 'WARNING: table %.% has not empty default partition (% - %)'
+      , schema_name, table_new
+      , parts.uts2date(clock_min)
+      , parts.uts2date(clock_max)
+      ;
+    END IF;
+  END LOOP;
+END
+$_$;
+
 
 CREATE OR REPLACE PROCEDURE parts.enable(
   table_name    TEXT
@@ -273,7 +275,7 @@ BEGIN
   RAISE NOTICE '%.%: Enable partitions for %', schema_name, table_name, table_column;
   execute format('create table %I.%I (like %I.%I including defaults including indexes) PARTITION BY RANGE (%I)'
     , schema_name, temp_table, schema_name, table_name, table_column);
-  call parts.attach(temp_table, schema_name, child_prefix := table_name);
+  call parts.attach_table(temp_table, schema_name, child_prefix := table_name);
   RAISE NOTICE 'insert data..';
   execute format('insert into %I.%I select * from %I.%I', schema_name, temp_table, schema_name, table_name);
 
@@ -283,5 +285,20 @@ BEGIN
 
   RAISE NOTICE '%.% is ready.', schema_name, table_name;
 END;
+$_$;
+
+
+-- Cleanup old
+CREATE OR REPLACE PROCEDURE parts.drop_old_proc() LANGUAGE plpgsql AS $_$
+BEGIN
+  DROP PROCEDURE IF EXISTS create_parts(text,text,integer,integer,integer,text);
+  DROP PROCEDURE IF EXISTS create_default_parts_for_all();
+  DROP PROCEDURE IF EXISTS create_default_parts_for_all(text);
+  DROP PROCEDURE IF EXISTS create_parts(text,text,int,int,int,text);
+  DROP PROCEDURE IF EXISTS create_parts(text,int,int,int,text);
+  DROP PROCEDURE IF EXISTS create_parts_for_all(int,int,int,text);
+  DROP PROCEDURE IF EXISTS create_parts_for_schema(text,int,int,int,text);
+  DROP PROCEDURE IF EXISTS enable_parts(text,text);
+END
 $_$;
 

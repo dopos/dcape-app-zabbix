@@ -63,9 +63,17 @@ endif
 
 include Makefile.parts
 
+# Inclide local targets (if exists)
+-include Makefile.local
+
 # ------------------------------------------------------------------------------
 ## App support operations
 #:
+
+## top via pgcenter
+top:
+	@docker run -it --rm --network ${DCAPE_NET} -e PGPASSWORD=$$PGPASSWORD \
+	lesovsky/pgcenter:latest pgcenter top -h db -U $$PGUSER -d $$PGDATABASE
 
 ## Бэкап схемы БД
 dump-schema:
