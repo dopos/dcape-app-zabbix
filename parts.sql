@@ -292,6 +292,7 @@ CREATE OR REPLACE PROCEDURE parts.move(
 , schema_new   TEXT
 , time_min     INT
 , time_interval INT  DEFAULT 604800     -- 7 days
+, index_suffix TEXT DEFAULT '_itemid_clock_idx'
 
 )
 LANGUAGE plpgsql AS $_$
@@ -323,6 +324,7 @@ BEGIN
         -- detach partition in new
         execute format('alter table %I.%I detach partition %I.%I', schema_new, table_name, schema_new, table_new);
         execute format('alter table %I.%I rename to %I', schema_new, table_new, table_new||'_back');
+        execute format('drop index if exists %I.%I', schema_new, table_new||index_suffix);
       end if;
       execute format('alter table %I.%I detach partition %I.%I', schema_old, table_name, schema_old, table_new);
       execute format('alter table %I.%I set schema %I', schema_old, table_new, schema_new);
