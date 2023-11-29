@@ -287,6 +287,43 @@ BEGIN
 END;
 $_$;
 
+CREATE OR REPLACE PROCEDURE parts.move(
+  schema_old   TEXT
+, schema_new   TEXT
+, time_min     INT
+, time_interval INT  DEFAULT 604800     -- 7 days
+
+)
+LANGUAGE plpgsql AS $_$
+/*
+  Перенос партиции времени time_min из схемы a_schema_old в a_schema_new
+*/
+DECLARE
+  chunk_from INT;
+  chunk_max INT;
+  table_new TEXT;
+  table_name TEXT;
+BEGIN
+  -- округляем до заданного шага
+  chunk_from := time_interval * (time_min / time_interval)::INT;
+  chunk_max := chunk_from + time_interval;
+  FOR table_name IN SELECT
+    relname
+    FROM parts.attached
+    WHERE nspname = schema_old
+  LOOP
+    RAISE NOTICE '%_p%: % -> %', table_name, chunk_from, schema_old, schema_new;
+    table_new := format('%s_p%s', table_name, chunk_from);
+    if to_regclass(format('%I.%I', schema_old, table_new)) is null then
+      raise notice '  not found';
+    else
+      execute format('alter table %I.%I detach partition %I.%I', schema_old, table_name, schema_old, table_new);
+      execute format('alter table %I.%I set schema %I', schema_old, table_new, schema_new);
+      execute format('ALTER TABLE %I.%I ATTACH PARTITION %I.%I FOR VALUES FROM (%L) TO (%L)', schema_new, table_name, schema_new, table_new, chunk_from, chunk_max);
+    end if;
+  END LOOP;
+END
+$_$;
 
 -- Cleanup old
 CREATE OR REPLACE PROCEDURE parts.drop_old_proc() LANGUAGE plpgsql AS $_$
