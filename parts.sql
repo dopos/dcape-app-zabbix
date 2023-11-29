@@ -297,6 +297,8 @@ CREATE OR REPLACE PROCEDURE parts.move(
 LANGUAGE plpgsql AS $_$
 /*
   Перенос партиции времени time_min из схемы a_schema_old в a_schema_new
+  Пример вызова:
+    call parts.move('s01', 'public', 1701907200);
 */
 DECLARE
   chunk_from INT;
@@ -317,6 +319,11 @@ BEGIN
     if to_regclass(format('%I.%I', schema_old, table_new)) is null then
       raise notice '  not found';
     else
+      if to_regclass(format('%I.%I', schema_new, table_new)) is not null then
+        -- detach partition in new
+        execute format('alter table %I.%I detach partition %I.%I', schema_new, table_name, schema_new, table_new);
+        execute format('alter table %I.%I rename to %I', schema_new, table_new, table_new||'_back');
+      end if;
       execute format('alter table %I.%I detach partition %I.%I', schema_old, table_name, schema_old, table_new);
       execute format('alter table %I.%I set schema %I', schema_old, table_new, schema_new);
       execute format('ALTER TABLE %I.%I ATTACH PARTITION %I.%I FOR VALUES FROM (%L) TO (%L)', schema_new, table_name, schema_new, table_new, chunk_from, chunk_max);
