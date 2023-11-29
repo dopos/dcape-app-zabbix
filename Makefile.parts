@@ -70,14 +70,14 @@ parts-new:
 	@dt=$$(date --date='+2days' +%F) ; \
 	  echo "Create new partitions for $$dt in schema $${PGSCHEMA:?Must be set}..." ; \
 	  docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER \
-	    -c "call parts.attach('$${PGSCHEMA}', time_min := date2uts('$$dt'))"
+	    -c "call parts.attach('$${PGSCHEMA}', time_min := parts.date2uts('$$dt'))"
 
 ## Создание новой партиции заданной таблицы для данных из дефолтной партиции
 parts-new-from:
 	@echo "Create new partitions for $${PART_DATE:?Must be set}" ; \
 	  echo "Table: $${PGSCHEMA:?Must be set}.$${TABLE:?Must be set}" ; \
 	  docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER \
-	  -c "call parts.attach_from_default('$$TABLE', '$$PGSCHEMA', time_min := date2uts('$$PART_DATE'))"
+	  -c "call parts.attach_from_default('$$TABLE', '$$PGSCHEMA', time_min := parts.date2uts('$$PART_DATE'))"
 
 ## Конвертация таблицы в партиционированную по заданному столбцу
 parts-enable:
