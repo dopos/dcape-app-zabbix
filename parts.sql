@@ -324,7 +324,8 @@ BEGIN
         -- detach partition in new
         execute format('alter table %I.%I detach partition %I.%I', schema_new, table_name, schema_new, table_new);
         execute format('alter table %I.%I rename to %I', schema_new, table_new, table_new||'_back');
-        execute format('drop index if exists %I.%I', schema_new, table_new || '_pkey');
+        execute format('alter index if exists %I.%I rename to %I', schema_new, table_new || '_pkey'
+        , table_new || '_back_pkey');
         execute format('drop index if exists %I.%I', schema_new, table_new || index_suffix);
       end if;
       execute format('alter table %I.%I detach partition %I.%I', schema_old, table_name, schema_old, table_new);
