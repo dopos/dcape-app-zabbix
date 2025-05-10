@@ -28,6 +28,14 @@ CREATE OR REPLACE FUNCTION parts.uts2date(uts INTEGER) RETURNS timestamp(0) IMMU
   SELECT to_timestamp(uts)
 $_$;
 
+CREATE OR REPLACE FUNCTION parts.chunk_from(
+  time_interval INT  DEFAULT 604800     -- 7 days
+, time_min      INT  DEFAULT NULL
+) RETURNS INT IMMUTABLE LANGUAGE sql AS $_$
+  --  Расчет начального времени чанка для заданного момента
+  SELECT time_interval * (time_min / time_interval)::INT - 4 * 3600; -- начало чанка - предыдущий понедельник
+$_$;
+
 CREATE OR REPLACE VIEW parts.attached AS SELECT
   n.nspname
 , c.relname
@@ -66,7 +74,7 @@ BEGIN
     time_min := extract(epoch from now());
   END IF;
   -- округляем до заданного шага
-  chunk_from := time_interval * (time_min / time_interval)::INT;
+  chunk_from := parts.chunk_from(time_interval, time_min);
   FOR i IN 1..chunk_count LOOP
     -- имя новой таблицы, префикс совпадает с текущей, если не задан явно
     table_new := format('%s_p%s', COALESCE(child_prefix, table_name), chunk_from);
@@ -86,6 +94,31 @@ BEGIN
     end if;
     chunk_from := chunk_from + time_interval;
   END LOOP;
+END
+$_$;
+
+CREATE OR REPLACE PROCEDURE parts.attach_default_table(
+  table_name    TEXT
+, schema_name   TEXT DEFAULT 'public'
+, child_prefix  TEXT DEFAULT NULL
+)
+LANGUAGE plpgsql AS $_$
+/*
+  Создание дефолтной партиции для таблицы
+*/
+DECLARE
+  schema_name TEXT;
+  table_name TEXT;
+  table_new TEXT;
+BEGIN
+    table_new := format('%s_default', child_prefix);
+    RAISE NOTICE '%.%: DEFAULT', schema_name, table_new;
+    if to_regclass(format('%I.%I', schema_name, table_new)) is null then
+      -- создаем, если такого имени нет
+      execute format('create table %I.%I partition of %I.%I default', schema_name, table_new, schema_name, table_name);
+    else
+      raise notice '  already exists';
+    end if;
 END
 $_$;
 
@@ -119,7 +152,8 @@ BEGIN
     time_min := extract(epoch from now());
   END IF;
   -- округляем до заданного шага
-  chunk_from := time_interval * (time_min / time_interval)::INT;
+  chunk_from := parts.chunk_from(time_interval, time_min);
+
   FOR i IN 1..chunk_count LOOP
     chunk_max := chunk_from + time_interval;
 
@@ -255,7 +289,6 @@ BEGIN
 END
 $_$;
 
-
 CREATE OR REPLACE PROCEDURE parts.enable(
   table_name    TEXT
 , table_column  TEXT
@@ -275,7 +308,9 @@ BEGIN
   RAISE NOTICE '%.%: Enable partitions for %', schema_name, table_name, table_column;
   execute format('create table %I.%I (like %I.%I including defaults including indexes) PARTITION BY RANGE (%I)'
     , schema_name, temp_table, schema_name, table_name, table_column);
+  call parts.attach_default_table(temp_table, schema_name, child_prefix := table_name);
   call parts.attach_table(temp_table, schema_name, child_prefix := table_name);
+  -- TODO: добавить партиции для всех данных исходной таблицы
   RAISE NOTICE 'insert data..';
   execute format('insert into %I.%I select * from %I.%I', schema_name, temp_table, schema_name, table_name);
 
@@ -308,7 +343,7 @@ DECLARE
   table_name TEXT;
 BEGIN
   -- округляем до заданного шага
-  chunk_from := time_interval * (time_min / time_interval)::INT;
+  chunk_from := parts.chunk_from(time_interval, time_min);
   chunk_max := chunk_from + time_interval;
   FOR table_name IN SELECT
     relname
