@@ -124,8 +124,6 @@ LANGUAGE plpgsql AS $_$
   Создание дефолтной партиции для таблицы
 */
 DECLARE
-  schema_name TEXT;
-  table_name TEXT;
   table_new TEXT;
 BEGIN
     table_new := format('%s_default', child_prefix);
