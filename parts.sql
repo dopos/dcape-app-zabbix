@@ -23,17 +23,38 @@ CREATE OR REPLACE FUNCTION parts.date2uts(dt TEXT DEFAULT CURRENT_DATE) RETURNS 
   SELECT EXTRACT(EPOCH FROM dt::TIMESTAMP)
 $_$;
 
-CREATE OR REPLACE FUNCTION parts.uts2date(uts INTEGER) RETURNS timestamp(0) IMMUTABLE LANGUAGE sql AS $_$
-  --  Конвертация даты в unix timestamp
-  SELECT to_timestamp(uts)
+CREATE OR REPLACE FUNCTION parts.uts2stamp(uts INTEGER) RETURNS timestamp(0) IMMUTABLE LANGUAGE sql AS $_$
+  --  Конвертация unix timestamp в timestamp
+  select (to_timestamp(uts) at time zone 'utc')::timestamptz
 $_$;
+
+/*
+
+select
+  parts.uts2stamp(parts.chunk_from(time_min := extract (epoch from '2025-05-04 23:59:00 MSK'::timestamptz)::INT))::timestamptz
+, parts.uts2stamp(parts.chunk_from(time_min := extract (epoch from '2025-05-05 00:00:00 MSK'::timestamptz)::INT))::timestamptz
+;
+
+        uts2stamp        |        uts2stamp        
+------------------------+------------------------
+ 2025-04-28 00:00:00+03 | 2025-05-05 00:00:00+03
+(1 row)
+
+*/
 
 CREATE OR REPLACE FUNCTION parts.chunk_from(
   time_interval INT  DEFAULT 604800     -- 7 days
 , time_min      INT  DEFAULT NULL
 ) RETURNS INT IMMUTABLE LANGUAGE sql AS $_$
   --  Расчет начального времени чанка для заданного момента
-  SELECT time_interval * (time_min / time_interval)::INT - 4 * 3600; -- начало чанка - предыдущий понедельник
+  SELECT time_interval * (
+    ( COALESCE (
+        time_min
+      , extract (epoch from now()::timestamptz)::INT -- время в текущем поясе переводим в UTC
+      )
+    - extract (epoch from '1970-01-05'::timestamptz)::INT -- начало - в полночь понедельника по текущему часовому поясу
+    ) / time_interval
+  )::INT + extract (epoch from '1970-01-05'::timestamp)::INT;
 $_$;
 
 CREATE OR REPLACE VIEW parts.attached AS SELECT
@@ -69,18 +90,14 @@ DECLARE
   i INT;
   table_new TEXT;
 BEGIN
-  IF time_min IS NULL THEN
-    -- если начальное время не задано, берем текущее
-    time_min := extract(epoch from now());
-  END IF;
   -- округляем до заданного шага
   chunk_from := parts.chunk_from(time_interval, time_min);
   FOR i IN 1..chunk_count LOOP
     -- имя новой таблицы, префикс совпадает с текущей, если не задан явно
     table_new := format('%s_p%s', COALESCE(child_prefix, table_name), chunk_from);
     RAISE NOTICE '%.%: FROM % TO %', schema_name, table_new
-            , parts.uts2date(chunk_from)
-            , parts.uts2date(chunk_from + time_interval)
+            , parts.uts2stamp(chunk_from)
+            , parts.uts2stamp(chunk_from + time_interval)
     ;
     if to_regclass(format('%I.%I', schema_name, table_new)) is null then
       -- создаем, если такого имени нет
@@ -147,10 +164,6 @@ DECLARE
   i INT;
   table_new TEXT;
 BEGIN
-  IF time_min IS NULL THEN
-    -- если начальное время не задано, берем текущее
-    time_min := extract(epoch from now());
-  END IF;
   -- округляем до заданного шага
   chunk_from := parts.chunk_from(time_interval, time_min);
 
@@ -164,8 +177,8 @@ BEGIN
     -- имя новой таблицы, префикс совпадает с текущей, если не задан явно
     table_new := format('%s_p%s', COALESCE(child_prefix, table_name), chunk_from);
     RAISE NOTICE '%.%: FROM % TO %', schema_name, table_new
-            , parts.uts2date(chunk_from)
-            , parts.uts2date(chunk_max)
+            , parts.uts2stamp(chunk_from)
+            , parts.uts2stamp(chunk_max)
     ;
     IF to_regclass(format('%I.%I', schema_name, table_new)) IS NOT NULL THEN
       -- такое имя уже есть
@@ -281,8 +294,8 @@ BEGIN
     IF COALESCE(clock_min,clock_max,-1) >0 THEN
       RAISE NOTICE 'WARNING: table %.% has not empty default partition (% - %)'
       , schema_name, table_new
-      , parts.uts2date(clock_min)
-      , parts.uts2date(clock_max)
+      , parts.uts2stamp(clock_min)
+      , parts.uts2stamp(clock_max)
       ;
     END IF;
   END LOOP;
