@@ -323,12 +323,18 @@ BEGIN
   call parts.attach_table(temp_table, schema_name, child_prefix := table_name);
   -- TODO: добавить партиции для всех данных исходной таблицы
   RAISE NOTICE 'insert data..';
-  execute format('insert into %I.%I select * from %I.%I', schema_name, temp_table, schema_name, table_name);
+  execute format('WITH buffer AS (DELETE FROM %I.%I RETURNING *) INSERT INTO %I.%I SELECT * FROM buffer'
+    , schema_name, table_name, schema_name, temp_table);
 
   RAISE NOTICE 'switch tables..';
   execute format('alter table %I.%I rename to %I.%I', schema_name, table_name, schema_name, table_name || '_pre');
   execute format('alter table %I.%I rename to %I.%I', schema_name, temp_table, schema_name, table_name);
 
+  -- С момента первого INSERT в эту таблицу могли что-то писать, поэтому, переименовав, повторим
+  RAISE NOTICE 'insert new data..';
+  execute format('WITH buffer AS (DELETE FROM %I.%I RETURNING *) INSERT INTO %I.%I SELECT * FROM buffer'
+    , schema_name, table_name || '_pre', schema_name, temp_table);
+  execute format('DROP TABLE %I.%I', schema_name, table_name || '_pre'); -- пустая таблица
   RAISE NOTICE '%.% is ready.', schema_name, table_name;
 END;
 $_$;
