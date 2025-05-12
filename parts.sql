@@ -23,21 +23,48 @@ CREATE OR REPLACE FUNCTION parts.date2uts(dt TEXT DEFAULT CURRENT_DATE) RETURNS 
   SELECT EXTRACT(EPOCH FROM dt::TIMESTAMP)
 $_$;
 
-CREATE OR REPLACE FUNCTION parts.uts2stamp(uts INTEGER) RETURNS timestamp(0) IMMUTABLE LANGUAGE sql AS $_$
+/*
+
+WITH v AS (
+  SELECT parts.stamp2uts('2025-05-15 02:59:00 MSK'::timestamptz) AS uts
+)
+SELECT uts, parts.uts2stamp(uts)
+  FROM v
+;
+    uts     |       uts2stamp
+------------+------------------------
+ 1747267140 | 2025-05-15 02:59:00+03
+
+*/
+
+CREATE OR REPLACE FUNCTION parts.stamp2uts(ts TIMESTAMPTZ DEFAULT NULL) RETURNS INTEGER IMMUTABLE LANGUAGE sql AS $_$
+  --  Конвертация даты в unix timestamp. Дата по умолчанию - текущая
+  SELECT EXTRACT(EPOCH FROM COALESCE (
+        ts
+      , now()::timestamptz
+      ))::INT
+$_$;
+
+CREATE OR REPLACE FUNCTION parts.uts2stamp(uts INTEGER) RETURNS timestamptz(0) IMMUTABLE LANGUAGE sql AS $_$
   --  Конвертация unix timestamp в timestamp
-  select (to_timestamp(uts) at time zone 'utc')::timestamptz
+  select to_timestamp(uts)
 $_$;
 
 /*
 
 select
-  parts.uts2stamp(parts.chunk_from(time_min := extract (epoch from '2025-05-04 23:59:00 MSK'::timestamptz)::INT))::timestamptz
-, parts.uts2stamp(parts.chunk_from(time_min := extract (epoch from '2025-05-05 00:00:00 MSK'::timestamptz)::INT))::timestamptz
+  parts.uts2stamp(parts.chunk_from(time_min := parts.stamp2uts('2025-05-15 02:59:00 MSK'::timestamptz))) as chunk_start
+, parts.uts2stamp(parts.chunk_from(time_min := parts.stamp2uts('2025-05-15 03:00:00 MSK'::timestamptz))) as next_chunk_start
 ;
-
-        uts2stamp        |        uts2stamp        
+      chunk_start       |    next_chunk_start
 ------------------------+------------------------
- 2025-04-28 00:00:00+03 | 2025-05-05 00:00:00+03
+ 2025-05-08 03:00:00+03 | 2025-05-15 03:00:00+03
+(1 row)
+
+select parts.uts2stamp(parts.stamp2uts ()) = now()::timestamptz(0) as eq;
+ eq
+----
+ t
 (1 row)
 
 */
@@ -48,13 +75,11 @@ CREATE OR REPLACE FUNCTION parts.chunk_from(
 ) RETURNS INT IMMUTABLE LANGUAGE sql AS $_$
   --  Расчет начального времени чанка для заданного момента
   SELECT time_interval * (
-    ( COALESCE (
+    COALESCE (
         time_min
       , extract (epoch from now()::timestamptz)::INT -- время в текущем поясе переводим в UTC
-      )
-    - extract (epoch from '1970-01-05'::timestamptz)::INT -- начало - в полночь понедельника по текущему часовому поясу
     ) / time_interval
-  )::INT + extract (epoch from '1970-01-05'::timestamp)::INT;
+  )::INT
 $_$;
 
 CREATE OR REPLACE VIEW parts.attached AS SELECT
@@ -209,7 +234,6 @@ BEGIN
   END LOOP;
 END
 $_$;
-
 
 CREATE OR REPLACE PROCEDURE parts.attach(
   a_schema_name TEXT DEFAULT NULL
@@ -401,4 +425,3 @@ BEGIN
   DROP PROCEDURE IF EXISTS enable_parts(text,text);
 END
 $_$;
-
