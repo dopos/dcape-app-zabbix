@@ -454,3 +454,55 @@ BEGIN
   END LOOP;
 END;
 $_$;
+
+CREATE TYPE parts.utsinfo AS (
+  uts INT
+, stamp TIMESTAMPTZ(0)
+);
+
+CREATE OR REPLACE FUNCTION parts.uts_info(
+  time_min      INT  DEFAULT NULL
+, chunk_count   INT  DEFAULT 1
+, time_interval INT  DEFAULT 604800     -- 7 days
+) RETURNS SETOF parts.utsinfo
+LANGUAGE sql AS $_$
+-- Посчитать uts для чанков
+WITH v AS (
+  SELECT  num, parts.chunk_from(time_interval, COALESCE (
+        time_min
+      , extract (epoch from now()::timestamptz)::INT -- время в текущем поясе переводим в UTC
+    ) + time_interval * (num - 1)) as uts
+  FROM    generate_series(1, chunk_count) num
+)
+SELECT uts, parts.uts2stamp(uts)
+  FROM v
+;
+$_$;
+
+/*
+select * from parts.uts_info();
+    uts     |         stamp
+------------+------------------------
+ 1746662400 | 2025-05-08 03:00:00+03
+(1 row)
+
+
+select * from parts.uts_info(chunk_count:=3);
+    uts     |         stamp
+------------+------------------------
+ 1746662400 | 2025-05-08 03:00:00+03
+ 1747267200 | 2025-05-15 03:00:00+03
+ 1747872000 | 2025-05-22 03:00:00+03
+(3 rows)
+
+select * from parts.uts_info(time_min:=parts.date2uts('2025-04-01'), chunk_count:=6);
+    uts     |         stamp
+------------+------------------------
+ 1743033600 | 2025-03-27 03:00:00+03
+ 1743638400 | 2025-04-03 03:00:00+03
+ 1744243200 | 2025-04-10 03:00:00+03
+ 1744848000 | 2025-04-17 03:00:00+03
+ 1745452800 | 2025-04-24 03:00:00+03
+ 1746057600 | 2025-05-01 03:00:00+03
+
+*/
