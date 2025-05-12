@@ -327,8 +327,8 @@ BEGIN
     , schema_name, table_name, schema_name, temp_table);
 
   RAISE NOTICE 'switch tables..';
-  execute format('alter table %I.%I rename to %I.%I', schema_name, table_name, schema_name, table_name || '_pre');
-  execute format('alter table %I.%I rename to %I.%I', schema_name, temp_table, schema_name, table_name);
+  execute format('alter table %I.%I rename to %I', schema_name, table_name, table_name || '_pre');
+  execute format('alter table %I.%I rename to %I', schema_name, temp_table, table_name);
 
   -- С момента первого INSERT в эту таблицу могли что-то писать, поэтому, переименовав, повторим
   RAISE NOTICE 'insert new data..';
