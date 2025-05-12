@@ -412,16 +412,45 @@ BEGIN
 END
 $_$;
 
--- Cleanup old
-CREATE OR REPLACE PROCEDURE parts.drop_old_proc() LANGUAGE plpgsql AS $_$
+CREATE OR REPLACE PROCEDURE parts.set_table_columnar(
+  a_schema_name   TEXT DEFAULT NULL
+, time_interval INT  DEFAULT 604800     -- 7 days
+, chunk_count   INT  DEFAULT 1
+, time_min      INT  DEFAULT NULL
+, is_off        BOOL DEFAULT FALSE      -- отменить columnar
+)
+LANGUAGE plpgsql AS $_$
+/*
+  Изменение метода хранения columnar/heap для всех партиций заданного чанка
+*/
+DECLARE
+  mode        TEXT := 'columnar';
+  schema_name TEXT;
+  table_name  TEXT;
+  table_new   TEXT;
+  chunk_from  INT;
+  chunk       INT;
+  i           INT;
 BEGIN
-  DROP PROCEDURE IF EXISTS create_parts(text,text,integer,integer,integer,text);
-  DROP PROCEDURE IF EXISTS create_default_parts_for_all();
-  DROP PROCEDURE IF EXISTS create_default_parts_for_all(text);
-  DROP PROCEDURE IF EXISTS create_parts(text,text,int,int,int,text);
-  DROP PROCEDURE IF EXISTS create_parts(text,int,int,int,text);
-  DROP PROCEDURE IF EXISTS create_parts_for_all(int,int,int,text);
-  DROP PROCEDURE IF EXISTS create_parts_for_schema(text,int,int,int,text);
-  DROP PROCEDURE IF EXISTS enable_parts(text,text);
-END
+  IF a_schema_name = '' THEN a_schema_name := NULL; END IF; -- из make удобнее передавать пустую строку
+  IF is_off THEN mode := 'heap'; END IF;
+  -- округляем до заданного шага
+  chunk_from := parts.chunk_from(time_interval, time_min);
+  FOR table_name, schema_name IN SELECT
+    relname, nspname
+    FROM parts.attached
+    WHERE nspname = COALESCE(a_schema_name, nspname)
+  LOOP
+    FOR i IN 1..chunk_count LOOP
+      chunk := chunk_from + time_interval * (i-1);
+      table_new := format('%s_p%s', table_name, chunk);
+      IF to_regclass(format('%I.%I', schema_name, table_new)) IS NOT NULL THEN
+        RAISE NOTICE '%.%: SET %', schema_name, table_new, mode;
+        PERFORM alter_table_set_access_method(format('%I.%I', schema_name, table_new), mode);
+      ELSE
+        RAISE NOTICE '%.%: not found', schema_name, table_new;
+      END IF;
+    END LOOP;
+  END LOOP;
+END;
 $_$;
