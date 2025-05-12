@@ -6,6 +6,10 @@
 exec-sql:
 	@cat $${SQL:?Must be set} | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
 
+## Получить информацию о текущем и следующем чанках
+uts-info:
+	@echo "select * from parts.uts_info(chunk_count:=2)" | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
+
 # ------------------------------------------------------------------------------
 
 ## Бэкап БД без партиций (PGSCHEMA)
