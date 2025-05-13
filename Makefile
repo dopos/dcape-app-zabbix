@@ -75,12 +75,6 @@ top:
 	@docker run -it --rm --network ${DCAPE_NET} -e PGPASSWORD=$$PGPASSWORD \
 	lesovsky/pgcenter:latest pgcenter top -h db -U $$PGUSER -d $$PGDATABASE
 
-## Бэкап схемы БД
-dump-schema:
-	@echo "BackUp schema..." ; \
-	  docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} --schema-only -Ft \
-	  | gzip > $${DEST_PATH}backupdb-zabbix-$${PGSCHEMA}-$(DATESTAMP)-schema.tgz
-
 ## Отключить алертинг (при запуске копии на продовых данных)
 alerts-off:
 	@cat alerts-off.sql | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA}

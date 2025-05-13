@@ -2,20 +2,29 @@
 ## App operations
 #:
 
+# Use exec via docker. Empty for direct call
+EXEC ?= docker exec -i $${DB_CONTAINER:?Must be set}
+
+## Бэкап схемы БД
+dump-schema:
+	@echo "BackUp schema..." ; \
+	  $(EXEC) pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} --schema-only -Ft \
+	  | gzip > $${DEST_PATH}backupdb-zabbix-$${PGSCHEMA}-$(DATESTAMP)-schema.tgz
+
 ## Выполнить файл в текущей БД (make sql SQL=file.sql)
 exec-sql:
-	@cat $${SQL:?Must be set} | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
+	@cat $${SQL:?Must be set} | $(EXEC) psql -d $$PGDATABASE -U $$PGUSER
 
 ## Получить информацию о текущем и следующем чанках
 uts-info:
-	@echo "select * from parts.uts_info(chunk_count:=2)" | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
+	@echo "select * from parts.uts_info(chunk_count:=2)" | $(EXEC) psql -d $$PGDATABASE -U $$PGUSER
 
 # ------------------------------------------------------------------------------
 
 ## Бэкап БД без партиций (PGSCHEMA)
 dump-noparts:
 	@echo "BackUp data for $${PGSCHEMA:?Must be set}..." ; \
-	  docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} -T $${PGSCHEMA}'.*_p[0-9]+' -Ft \
+	  $(EXEC) pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} -T $${PGSCHEMA}'.*_p[0-9]+' -Ft \
 	  | gzip > $${DEST_PATH}backupdb-zabbix-$${PGSCHEMA}-$(DATESTAMP)-noparts.tgz
 
 ## Бэкап партиций с данными на вчера (PGSCHEMA)
@@ -24,7 +33,7 @@ dump-parts:
 	  week=$$(expr $$(date --date=yesterday +%s) / 604800) ; \
 	  from=$$(expr $$week \* 604800) ; dfrom=$$(date -d "@$$from" +%F) ; \
 	  echo "BackUp parts for $$from ($$dfrom)..." ; \
-	  docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} -t $${PGSCHEMA}'.*_p'$${from} -Ft \
+	  $(EXEC) pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} -t $${PGSCHEMA}'.*_p'$${from} -Ft \
 	  | gzip > $${DEST_PATH}backupdb-zabbix-$${PGSCHEMA}-$${dfrom}-$${from}-parts.tgz
 
 ## Бэкап партиций с данными на сегодня, если партиция отличается от вчерашней
@@ -37,7 +46,7 @@ dump-parts-now:
 	  else \
 	    from=$$(expr $$week_now \* 604800) ; dfrom=$$(date -d "@$$from" +%F) ; \
 	    echo "BackUp parts for $$from ($$dfrom)..." ; \
-	    docker exec -i $$DB_CONTAINER pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} -t $${PGSCHEMA}'.*_p'$${from} -Ft \
+	    $(EXEC) pg_dump -d $$PGDATABASE -U $$PGUSER -n $${PGSCHEMA} -t $${PGSCHEMA}'.*_p'$${from} -Ft \
 	    | gzip > $${DEST_PATH}backupdb-zabbix-$${PGSCHEMA}-$${dfrom}-$${from}-parts.tgz ; \
 	  fi
 
@@ -45,19 +54,19 @@ dump-parts-now:
 
 ## Восстановление архива из параметра SRC
 rest:
-	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft \
+	zcat $${SRC:?Must be set} | $(EXEC) pg_restore -Ft \
 	  --if-exists --clean -O -d $$PGDATABASE -U $$PGUSER
 
 ## Восстановление партиций из параметра SRC
 rest-parts:
-	zcat $${SRC:?Must be set} | docker exec -i $$DB_CONTAINER pg_restore -Ft \
+	zcat $${SRC:?Must be set} | $(EXEC) pg_restore -Ft \
 	  -1 --section=pre-data --section=data --if-exists --clean -O -d $$PGDATABASE -U $$PGUSER
 
 # ------------------------------------------------------------------------------
 
 ## Проверка, что дефолтные партиции пустые
 check-def-empty:
-	@docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER \
+	@$(EXEC) psql -d $$PGDATABASE -U $$PGUSER \
 	  -c "call parts.defaults_size('$${PGSCHEMA}')"
 
 # ------------------------------------------------------------------------------
@@ -65,32 +74,31 @@ check-def-empty:
 ## Создание дефолтных партиций
 parts-def:
 	@echo "Create default partitions for schema $${PGSCHEMA:?Must be set}..." ; \
-	  docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER \
+	  $(EXEC) psql -d $$PGDATABASE -U $$PGUSER \
 	    -c "call parts.defaults('$${PGSCHEMA}')"
-
 
 ## Создание новых партиций для послезавтра
 parts-new:
 	@dt=$$(date --date='+2days' +%F) ; \
 	  echo "Create new partitions for $$dt in schema $${PGSCHEMA:?Must be set}..." ; \
-	  docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER \
+	  $(EXEC) psql -d $$PGDATABASE -U $$PGUSER \
 	    -c "call parts.attach('$${PGSCHEMA}', time_min := parts.date2uts('$$dt'))"
 
 ## Создание новой партиции заданной таблицы для данных из дефолтной партиции
 parts-new-from:
 	@echo "Create new partitions for $${PART_DATE:?Must be set}" ; \
 	  echo "Table: $${PGSCHEMA:?Must be set}.$${TABLE:?Must be set}" ; \
-	  docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER \
+	  $(EXEC) psql -d $$PGDATABASE -U $$PGUSER \
 	  -c "call parts.attach_from_default('$$TABLE', '$$PGSCHEMA', time_min := parts.date2uts('$$PART_DATE'))"
 
 ## Конвертация таблицы в партиционированную по заданному столбцу
 parts-enable:
 	@echo "Enable partitions for $${PGSCHEMA:?Must be set}.$${TABLE:?Must be set} on $${COLUMN:?Must be set}" ; \
-	  docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER \
+	  $(EXEC) psql -d $$PGDATABASE -U $$PGUSER \
 	  -c "call parts.enable('$$TABLE', '$$COLUMN', '$$PGSCHEMA')"
 
 # ------------------------------------------------------------------------------
 
 ## Загрузить код (схема parts)
 parts-install:
-	@cat parts.sql | docker exec -i $${DB_CONTAINER:?Must be set} psql -d $$PGDATABASE -U $$PGUSER
+	@cat parts.sql | $(EXEC) psql -d $$PGDATABASE -U $$PGUSER
