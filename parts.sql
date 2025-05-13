@@ -13,6 +13,9 @@
   Аналог из timescaledb:
   SELECT create_hypertable('history', 'clock', chunk_time_interval => 86400, migrate_data => true);
 
+  Код ниже имеет перемешанный регистр, т.к. капс для служебных слов потенциально устарел и
+  окончательное решение по этому вопросу еще не принято.
+
 */
 
 DROP SCHEMA IF EXISTS parts CASCADE;
@@ -38,7 +41,7 @@ SELECT uts, parts.uts2stamp(uts)
 */
 
 CREATE OR REPLACE FUNCTION parts.stamp2uts(ts TIMESTAMPTZ DEFAULT NULL) RETURNS INTEGER IMMUTABLE LANGUAGE sql AS $_$
-  --  Конвертация даты в unix timestamp. Дата по умолчанию - текущая
+  --  Конвертация ремени в unix timestamp. Дата по умолчанию - текущая
   SELECT EXTRACT(EPOCH FROM COALESCE (
         ts
       , now()::timestamptz
@@ -86,7 +89,7 @@ CREATE OR REPLACE FUNCTION parts.chunk_from_mon(
   time_interval INT  DEFAULT 604800     -- 7 days
 , time_min      INT  DEFAULT NULL
 ) RETURNS INT IMMUTABLE LANGUAGE sql AS $_$
-  --  Расчет начального времени чанка для заданного момента (полночь понедельника по часовому поясу)
+  --  Расчет начального времени чанка (полночь понедельника по часовому поясу) для заданного момента
   SELECT time_interval * (
     ( COALESCE (
         time_min
@@ -96,7 +99,6 @@ CREATE OR REPLACE FUNCTION parts.chunk_from_mon(
     ) / time_interval
   )::INT + extract (epoch from '1970-01-05'::timestamptz)::INT; -- вернуть смещение
 $_$;
-
 
 /*
 
@@ -221,7 +223,7 @@ BEGIN
   FOR i IN 1..chunk_count LOOP
     chunk_max := chunk_from + time_interval;
 
-    IF extract(epoch from now()) BETWEEN chunk_from AND chunk_max THEN
+    IF parts.stamp2uts() BETWEEN chunk_from AND chunk_max THEN
       -- если текущая дата попадает в эту партицию
       RAISE NOTICE 'WARNING: если сейчас что-то пишет в дефолтную партицию, это может потеряться';
     END IF;
@@ -360,10 +362,6 @@ CREATE OR REPLACE PROCEDURE parts.enable(
 LANGUAGE plpgsql AS $_$
 /*
   Конвертация таблицы schema_name.table_name в партиционированную по полю table_column.
-  ВНИМАНИЕ! Таблица будет переименована (добавится суффикс _pre) и в эту копию
-  попадут все изменения, сделанные за время работы процедуры.
-  После конвертации необходимо отдельно выполнить запрос
-  INSERT INTO table SELECT * FROM table_pre EXCEPT SELECT * FROM table;
 */
 DECLARE
   temp_table TEXT := table_name || '__temp';
@@ -384,9 +382,10 @@ BEGIN
 
   -- С момента первого INSERT в эту таблицу могли что-то писать, поэтому, переименовав, повторим
   RAISE NOTICE 'insert new data..';
+  -- TODO: собрать кейс, где эта выборка будет не пустой
   execute format('WITH buffer AS (DELETE FROM %I.%I RETURNING *) INSERT INTO %I.%I SELECT * FROM buffer'
     , schema_name, table_name || '_pre', schema_name, table_name);
-  execute format('DROP TABLE %I.%I', schema_name, table_name || '_pre'); -- пустая таблица
+  execute format('DROP TABLE %I.%I', schema_name, table_name || '_pre'); -- пустая таблица, TODO: проверить перед удалением
   RAISE NOTICE '%.% is ready.', schema_name, table_name;
 END;
 $_$;
@@ -397,7 +396,6 @@ CREATE OR REPLACE PROCEDURE parts.move(
 , time_min     INT
 , time_interval INT  DEFAULT 604800     -- 7 days
 , index_suffix TEXT DEFAULT '_itemid_clock_idx'
-
 )
 LANGUAGE plpgsql AS $_$
 /*
