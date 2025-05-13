@@ -58,7 +58,7 @@ DCAPE_ROOT      ?= $(shell docker inspect -f "{{.Config.Labels.dcape_root}}" $(D
 ifeq ($(shell test -e $(DCAPE_ROOT)/Makefile.app && echo -n yes),yes)
   include $(DCAPE_ROOT)/Makefile.app
 else
-  include /opt/dcape/Makefile.app
+  -include /opt/dcape/Makefile.app
 endif
 
 include Makefile.parts
