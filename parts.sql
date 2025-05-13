@@ -357,7 +357,7 @@ BEGIN
   -- С момента первого INSERT в эту таблицу могли что-то писать, поэтому, переименовав, повторим
   RAISE NOTICE 'insert new data..';
   execute format('WITH buffer AS (DELETE FROM %I.%I RETURNING *) INSERT INTO %I.%I SELECT * FROM buffer'
-    , schema_name, table_name || '_pre', schema_name, temp_table);
+    , schema_name, table_name || '_pre', schema_name, table_name);
   execute format('DROP TABLE %I.%I', schema_name, table_name || '_pre'); -- пустая таблица
   RAISE NOTICE '%.% is ready.', schema_name, table_name;
 END;
