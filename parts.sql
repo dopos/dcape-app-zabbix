@@ -41,7 +41,7 @@ SELECT uts, parts.uts2stamp(uts)
 */
 
 CREATE OR REPLACE FUNCTION parts.stamp2uts(ts TIMESTAMPTZ DEFAULT NULL) RETURNS INTEGER IMMUTABLE LANGUAGE sql AS $_$
-  --  Конвертация ремени в unix timestamp. Дата по умолчанию - текущая
+  --  Конвертация времени в unix timestamp. Дата по умолчанию - текущая
   SELECT EXTRACT(EPOCH FROM COALESCE (
         ts
       , now()::timestamptz
