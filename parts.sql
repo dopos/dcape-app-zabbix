@@ -50,6 +50,19 @@ CREATE OR REPLACE FUNCTION parts.uts2stamp(uts INTEGER) RETURNS timestamptz(0) I
   select to_timestamp(uts)
 $_$;
 
+CREATE OR REPLACE FUNCTION parts.chunk_from(
+  time_interval INT  DEFAULT 604800     -- 7 days
+, time_min      INT  DEFAULT NULL
+) RETURNS INT IMMUTABLE LANGUAGE sql AS $_$
+  --  Расчет начального времени чанка для заданного момента
+  SELECT time_interval * (
+    COALESCE (
+        time_min
+      , extract (epoch from now()::timestamptz)::INT -- время в текущем поясе переводим в UTC
+    ) / time_interval
+  )::INT
+$_$;
+
 /*
 
 select
@@ -69,18 +82,33 @@ select parts.uts2stamp(parts.stamp2uts ()) = now()::timestamptz(0) as eq;
 
 */
 
-CREATE OR REPLACE FUNCTION parts.chunk_from(
+CREATE OR REPLACE FUNCTION parts.chunk_from_mon(
   time_interval INT  DEFAULT 604800     -- 7 days
 , time_min      INT  DEFAULT NULL
 ) RETURNS INT IMMUTABLE LANGUAGE sql AS $_$
-  --  Расчет начального времени чанка для заданного момента
+  --  Расчет начального времени чанка для заданного момента (полночь понедельника по часовому поясу)
   SELECT time_interval * (
-    COALESCE (
+    ( COALESCE (
         time_min
       , extract (epoch from now()::timestamptz)::INT -- время в текущем поясе переводим в UTC
+      )
+    - extract (epoch from '1970-01-05'::timestamptz)::INT -- перед расчетом - убрать смещение на полночь понедельника по текущему часовому поясу
     ) / time_interval
-  )::INT
+  )::INT + extract (epoch from '1970-01-05'::timestamptz)::INT; -- вернуть смещение
 $_$;
+
+
+/*
+
+select
+  parts.uts2stamp(parts.chunk_from_mon(time_min := parts.stamp2uts('2025-05-11 23:59:00 MSK'::timestamptz))) as chunk_start
+, parts.uts2stamp(parts.chunk_from_mon(time_min := parts.stamp2uts('2025-05-12 00:00:00 MSK'::timestamptz))) as next_chunk_start
+;
+      chunk_start       |    next_chunk_start
+------------------------+------------------------
+ 2025-05-05 00:00:00+03 | 2025-05-12 00:00:00+03
+
+*/
 
 CREATE OR REPLACE VIEW parts.attached AS SELECT
   n.nspname
