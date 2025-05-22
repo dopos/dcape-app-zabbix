@@ -247,12 +247,12 @@ BEGIN
     );
     -- добавить к ней чек
     RAISE NOTICE 'create check';
-    execute format('alter table %I.%I add check (clock between %L AND %L)'
+    execute format('alter table %I.%I add check (clock >= %L AND clock < %L)'
             , schema_name, table_new, chunk_from, chunk_max
     );
     -- перенести строки из дефолта
     RAISE NOTICE 'move data';
-    execute format('WITH buffer AS (DELETE FROM %I.%I WHERE clock BETWEEN %L AND %L RETURNING *) INSERT INTO %I.%I SELECT * FROM buffer'
+    execute format('WITH buffer AS (DELETE FROM %I.%I WHERE clock >= %L AND clock < %L RETURNING *) INSERT INTO %I.%I SELECT * FROM buffer'
     , schema_name, table_name||'_default', chunk_from, chunk_max, schema_name, table_new
     );
     -- пристегнуть к родителю
