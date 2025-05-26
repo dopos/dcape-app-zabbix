@@ -247,7 +247,7 @@ BEGIN
     );
     -- добавить к ней чек
     RAISE NOTICE 'create check';
-    execute format('alter table %I.%I add check (clock >= %L AND clock < %L)'
+    execute format('alter table %I.%I add constraint temp_check check (clock >= %L AND clock < %L)'
             , schema_name, table_new, chunk_from, chunk_max
     );
     -- перенести строки из дефолта
@@ -259,6 +259,11 @@ BEGIN
     RAISE NOTICE 'attach';
     execute format('ALTER TABLE %I.%I ATTACH PARTITION %I.%I FOR VALUES FROM (%L) TO (%L)'
     , schema_name, table_name, schema_name, table_new, chunk_from, chunk_max
+    );
+    -- удалить чек
+    RAISE NOTICE 'delete check';
+    execute format('alter table %I.%I drop constraint temp_check'
+    , schema_name, table_new
     );
     chunk_from := chunk_max;
   END LOOP;
